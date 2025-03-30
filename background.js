@@ -68,25 +68,33 @@ async function openAITab(ai) {
   // Wait for the tab to load
   return new Promise((resolve, reject) => {
     const tabId = tab.id;
+    let timeoutHandle = null;
     
     function listener(updatedTabId, changeInfo) {
-      if (updatedTabId === tabId && changeInfo.status === 'complete') {
-        chrome.tabs.onUpdated.removeListener(listener);
-        
-        // Give the page a moment to fully initialize
-        setTimeout(() => {
-          resolve({ tabId: tabId, success: true });
-        }, 2000);
+      if (updatedTabId === tabId) {
+        if (changeInfo.status === 'complete') {
+          clearTimeout(timeoutHandle);
+          chrome.tabs.onUpdated.removeListener(listener);
+          console.log(`Tab ${tabId} for ${ai} finished loading.`);
+          
+          // Give the page a moment to fully initialize
+          setTimeout(() => {
+            resolve({ tabId: tabId, success: true });
+          }, 2500); // Increased initialization time
+        } else if (changeInfo.status === 'loading') {
+          console.log(`Tab ${tabId} for ${ai} is loading...`);
+        }
       }
     }
     
     chrome.tabs.onUpdated.addListener(listener);
     
     // Set a timeout in case the tab never fully loads
-    setTimeout(() => {
+    timeoutHandle = setTimeout(() => {
       chrome.tabs.onUpdated.removeListener(listener);
+      console.warn(`Timeout waiting for ${ai} tab ${tabId} to load.`);
       resolve({ tabId: tabId, success: false, warning: 'Tab might not be fully loaded' });
-    }, 20000);
+    }, 25000); // 25 second timeout
   });
 }
 
@@ -133,7 +141,14 @@ async function askAI(ai, tabId, question) {
     return { success: true };
   } catch (error) {
     console.error(`Error injecting script into ${ai} tab:`, error);
-    throw error;
+    // Make error message more specific
+    if (error.message.includes('Cannot access contents of url')) {
+      throw new Error(`Permission denied for ${ai}. Check host permissions in manifest.`);
+    } else if (error.message.includes('Cannot read properties of undefined')) {
+      throw new Error(`Script injection failed for ${ai}. The tab might have been closed or navigated away.`);
+    } else {
+      throw new Error(`Failed to interact with ${ai} tab: ${error.message}`);
+    }
   }
 }
 
@@ -435,7 +450,7 @@ async function injectQuestion(ai, question) {
 function pollForResponse(ai, responseSelectors, port) {
   console.log(`Starting polling for ${ai} responses`);
   let pollAttempts = 0;
-  const maxAttempts = 40; // 40 seconds max
+  const maxAttempts = 60; // 60 seconds max
   let lastResponse = '';
   let stableCount = 0;
   
@@ -477,14 +492,20 @@ function pollForResponse(ai, responseSelectors, port) {
     
     if (responseElement) {
       const responseText = responseElement.textContent || responseElement.innerText;
-      if (responseText && responseText.trim().length > 0) {
+      
+      // Check for specific indicators of response completion or inactivity
+      const isGenerating = document.querySelector('.typing') || document.querySelector('.result-streaming') || document.querySelector('.stop-generating-button');
+      const hasResponseContent = responseText && responseText.trim().length > 0 && responseText !== '.' && responseText !== '..' && responseText !== '...';
+      
+      if (hasResponseContent) {
         console.log(`Found response text for ${ai}: ${responseText.substring(0, 50)}...`);
         
         // Check if the response has stabilized (stopped changing)
         if (responseText === lastResponse) {
           stableCount++;
-          // If the text hasn't changed for 3 polls (3 seconds), consider it complete
-          if (stableCount >= 3) {
+          // If the text hasn't changed for 4 polls (4 seconds) and no generation indicator, consider it complete
+          if (stableCount >= 4 && !isGenerating) {
+            console.log(`Response for ${ai} stabilized.`);
             port.postMessage({
               action: 'aiResponse',
               ai: ai,
@@ -508,6 +529,9 @@ function pollForResponse(ai, responseSelectors, port) {
             });
           }
         }
+      } else if (pollAttempts > 5 && !isGenerating) {
+        // If after 5 seconds, there's no content and no generation, maybe it failed silently
+        console.log(`No response content and no generation indicator for ${ai} after 5 seconds.`);
       }
     } else {
       console.log(`No response element found yet for ${ai}`);
@@ -522,13 +546,13 @@ function pollForResponse(ai, responseSelectors, port) {
         port.postMessage({
           action: 'aiResponse',
           ai: ai,
-          response: lastResponse
+          response: lastResponse // Send the last captured response on timeout
         });
       } else {
         port.postMessage({
           action: 'aiResponse',
           ai: ai,
-          response: `Error: Timeout waiting for response from ${ai}.`
+          response: `Error: Timeout waiting for response from ${ai}. The service might be unresponsive or the selectors need updating.`
         });
       }
     }
