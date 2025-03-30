@@ -12,6 +12,9 @@ document.addEventListener('DOMContentLoaded', function() {
   // Theme handling
   initTheme();
   
+  // Load saved responses and question
+  loadSavedData();
+  
   themeToggle.addEventListener('click', () => {
     const currentTheme = document.documentElement.getAttribute('data-theme');
     const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
@@ -44,6 +47,63 @@ document.addEventListener('DOMContentLoaded', function() {
         });
       });
     });
+  }
+  
+  // Load previous session's data
+  function loadSavedData() {
+    chrome.storage.local.get(['lastQuestion', 'responses'], (data) => {
+      if (data.lastQuestion) {
+        questionInput.value = data.lastQuestion;
+      }
+      
+      if (data.responses) {
+        if (data.responses.gemini) {
+          geminiResponse.textContent = data.responses.gemini.text;
+          if (data.responses.gemini.isError) {
+            geminiResponse.classList.add('error');
+          }
+        }
+        
+        if (data.responses.chatgpt) {
+          chatgptResponse.textContent = data.responses.chatgpt.text;
+          if (data.responses.chatgpt.isError) {
+            chatgptResponse.classList.add('error');
+          }
+        }
+        
+        if (data.responses.claude) {
+          claudeResponse.textContent = data.responses.claude.text;
+          if (data.responses.claude.isError) {
+            claudeResponse.classList.add('error');
+          }
+        }
+        
+        // Update status if we have responses
+        if (data.responses.gemini || data.responses.chatgpt || data.responses.claude) {
+          status.textContent = 'Previous responses loaded';
+        }
+      }
+    });
+  }
+  
+  // Save responses to Chrome storage
+  function saveResponses() {
+    const responses = {
+      gemini: {
+        text: geminiResponse.textContent,
+        isError: geminiResponse.classList.contains('error')
+      },
+      chatgpt: {
+        text: chatgptResponse.textContent,
+        isError: chatgptResponse.classList.contains('error')
+      },
+      claude: {
+        text: claudeResponse.textContent,
+        isError: claudeResponse.classList.contains('error')
+      }
+    };
+    
+    chrome.storage.local.set({ responses: responses });
   }
   
   function setTheme(theme) {
@@ -87,6 +147,9 @@ document.addEventListener('DOMContentLoaded', function() {
       setError('Please enter a question');
       return;
     }
+    
+    // Save the question to storage
+    chrome.storage.local.set({ lastQuestion: question });
     
     clearResponses();
     clearError();
@@ -179,6 +242,9 @@ document.addEventListener('DOMContentLoaded', function() {
     
     claudeResponse.textContent = '';
     claudeResponse.classList.remove('error', 'loading');
+    
+    // Clear saved responses
+    chrome.storage.local.remove('responses');
   }
 
   function setError(message) {
@@ -214,11 +280,13 @@ document.addEventListener('DOMContentLoaded', function() {
         geminiResponse.textContent = 'Error: ' + error.message;
         geminiResponse.classList.remove('loading');
         geminiResponse.classList.add('error');
+        saveResponses(); // Save the error response
       }
     } else {
       geminiResponse.textContent = 'Error: Could not connect to Gemini.';
       geminiResponse.classList.remove('loading');
       geminiResponse.classList.add('error');
+      saveResponses(); // Save the error response
     }
     
     // Process ChatGPT
@@ -234,11 +302,13 @@ document.addEventListener('DOMContentLoaded', function() {
         chatgptResponse.textContent = 'Error: ' + error.message;
         chatgptResponse.classList.remove('loading');
         chatgptResponse.classList.add('error');
+        saveResponses(); // Save the error response
       }
     } else {
       chatgptResponse.textContent = 'Error: Could not connect to ChatGPT.';
       chatgptResponse.classList.remove('loading');
       chatgptResponse.classList.add('error');
+      saveResponses(); // Save the error response
     }
     
     // Process Claude
@@ -254,11 +324,13 @@ document.addEventListener('DOMContentLoaded', function() {
         claudeResponse.textContent = 'Error: ' + error.message;
         claudeResponse.classList.remove('loading');
         claudeResponse.classList.add('error');
+        saveResponses(); // Save the error response
       }
     } else {
       claudeResponse.textContent = 'Error: Could not connect to Claude.';
       claudeResponse.classList.remove('loading');
       claudeResponse.classList.add('error');
+      saveResponses(); // Save the error response
     }
     
     // Set status to waiting for responses if at least one AI is being queried
@@ -284,6 +356,9 @@ document.addEventListener('DOMContentLoaded', function() {
         responseElement.textContent = message.response;
         setStatus(`Received response from ${message.ai}`);
         
+        // Save responses after receiving each response
+        saveResponses();
+        
         // Check if all responses are received
         const stillLoading = [
           geminiResponse.classList.contains('loading'),
@@ -297,5 +372,10 @@ document.addEventListener('DOMContentLoaded', function() {
         }
       }
     }
+  });
+  
+  // Save responses when the popup is about to close
+  window.addEventListener('beforeunload', function() {
+    saveResponses();
   });
 }); 
