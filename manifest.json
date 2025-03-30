@@ -1,0 +1,43 @@
+{
+  "manifest_version": 3,
+  "name": "Mixer AI",
+  "version": "1.0",
+  "description": "Compare responses from multiple AI assistants (Gemini, ChatGPT, and Claude) side by side. Ask one question, get three answers.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/image.png",
+      "48": "icons/image.png",
+      "128": "icons/image.png"
+    }
+  },
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "tabs"
+  ],
+  "host_permissions": [
+    "*://*.google.com/*",
+    "*://*.openai.com/*",
+    "*://*.anthropic.com/*",
+    "*://*.claude.ai/*",
+    "https://claude.ai/*",
+    "https://gemini.google.com/*",
+    "https://chat.openai.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.google.com/*",
+        "*://*.openai.com/*",
+        "*://*.anthropic.com/*",
+        "*://*.claude.ai/*",
+        "https://claude.ai/*"
+      ],
+      "js": ["content.js"]
+    }
+  ]
+} 

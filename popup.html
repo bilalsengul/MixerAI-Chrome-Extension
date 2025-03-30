@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Mixer AI</title>
+  <meta charset="UTF-8">
+  <style>
+    body {
+      width: 400px;
+      font-family: Arial, sans-serif;
+      padding: 10px;
+    }
+    .container {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    textarea {
+      width: 100%;
+      height: 100px;
+      resize: vertical;
+      padding: 8px;
+      box-sizing: border-box;
+    }
+    button {
+      padding: 8px;
+      background-color: #4285f4;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #3367d6;
+    }
+    .response-container {
+      margin-top: 10px;
+    }
+    .response {
+      margin-bottom: 15px;
+      border-left: 4px solid #4285f4;
+      padding-left: 10px;
+    }
+    .loader {
+      border: 3px solid #f3f3f3;
+      border-radius: 50%;
+      border-top: 3px solid #3498db;
+      width: 20px;
+      height: 20px;
+      animation: spin 1s linear infinite;
+      display: none;
+      margin: 0 auto;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .status {
+      font-size: 12px;
+      color: #666;
+      margin-top: 5px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>Mixer AI</h2>
+    <textarea id="question" placeholder="Enter your question here..."></textarea>
+    <button id="askButton">Ask All AIs</button>
+    <div class="loader" id="loader"></div>
+    <div class="status" id="status"></div>
+    
+    <div class="response-container">
+      <h3>Gemini:</h3>
+      <div class="response" id="geminiResponse"></div>
+      
+      <h3>ChatGPT:</h3>
+      <div class="response" id="chatgptResponse"></div>
+      
+      <h3>Claude:</h3>
+      <div class="response" id="claudeResponse"></div>
+    </div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html> 
