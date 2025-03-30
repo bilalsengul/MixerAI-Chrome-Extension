@@ -22,6 +22,8 @@
     "*://*.anthropic.com/*",
     "*://*.claude.ai/*",
     "https://claude.ai/*",
+    "https://claude.ai/new",
+    "https://claude.ai/new/*",
     "https://gemini.google.com/*",
     "https://chat.openai.com/*"
   ],
@@ -35,7 +37,9 @@
         "*://*.openai.com/*",
         "*://*.anthropic.com/*",
         "*://*.claude.ai/*",
-        "https://claude.ai/*"
+        "https://claude.ai/*",
+        "https://claude.ai/new",
+        "https://claude.ai/new/*"
       ],
       "js": ["content.js"]
     }
