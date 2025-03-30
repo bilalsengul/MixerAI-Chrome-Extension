@@ -7,6 +7,48 @@ document.addEventListener('DOMContentLoaded', function() {
   const geminiResponse = document.getElementById('geminiResponse');
   const chatgptResponse = document.getElementById('chatgptResponse');
   const claudeResponse = document.getElementById('claudeResponse');
+  const themeToggle = document.getElementById('theme-toggle');
+
+  // Theme handling
+  initTheme();
+  
+  themeToggle.addEventListener('click', () => {
+    const currentTheme = document.documentElement.getAttribute('data-theme');
+    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+    
+    setTheme(newTheme);
+    
+    // Save theme preference
+    chrome.storage.local.set({ theme: newTheme });
+  });
+  
+  function initTheme() {
+    // Check for saved theme preference or use system preference
+    chrome.storage.local.get('theme', (data) => {
+      if (data.theme) {
+        setTheme(data.theme);
+      } else {
+        // Use system preference as default if available
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+          setTheme('dark');
+        }
+      }
+      
+      // Listen for system theme changes
+      window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+        chrome.storage.local.get('theme', (data) => {
+          if (!data.theme) {
+            // Only change automatically if user hasn't set a preference
+            setTheme(e.matches ? 'dark' : 'light');
+          }
+        });
+      });
+    });
+  }
+  
+  function setTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+  }
 
   // Add event listeners for copy buttons
   document.querySelectorAll('.copy-btn').forEach(button => {
