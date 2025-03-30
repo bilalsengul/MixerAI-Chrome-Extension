@@ -4,80 +4,282 @@
   <title>Mixer AI</title>
   <meta charset="UTF-8">
   <style>
-    body {
-      width: 400px;
-      font-family: Arial, sans-serif;
-      padding: 10px;
+    :root {
+      --primary-color: #4285f4;
+      --claude-color: #7358ff;
+      --openai-color: #10a37f;
+      --gemini-color: #4285f4;
+      --background-color: #f8f9fa;
+      --card-background: white;
+      --text-color: #202124;
+      --border-radius: 8px;
+      --box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
     }
+
+    body {
+      width: 520px;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      padding: 16px;
+      margin: 0;
+      background-color: var(--background-color);
+      color: var(--text-color);
+    }
+
     .container {
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 16px;
     }
+
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+
+    .header h1 {
+      font-size: 24px;
+      margin: 0;
+      color: var(--primary-color);
+    }
+
+    .input-container {
+      background-color: var(--card-background);
+      border-radius: var(--border-radius);
+      padding: 16px;
+      box-shadow: var(--box-shadow);
+    }
+
     textarea {
       width: 100%;
       height: 100px;
       resize: vertical;
-      padding: 8px;
+      padding: 12px;
       box-sizing: border-box;
+      border: 1px solid #dfe1e5;
+      border-radius: 4px;
+      font-family: inherit;
+      font-size: 14px;
+      outline: none;
+      transition: border 0.2s;
     }
+
+    textarea:focus {
+      border-color: var(--primary-color);
+    }
+
     button {
-      padding: 8px;
-      background-color: #4285f4;
+      width: 100%;
+      padding: 12px;
+      background-color: var(--primary-color);
       color: white;
       border: none;
       border-radius: 4px;
       cursor: pointer;
+      font-weight: 500;
+      font-size: 14px;
+      transition: background-color 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
     }
+
     button:hover {
       background-color: #3367d6;
     }
-    .response-container {
-      margin-top: 10px;
+
+    button:disabled {
+      background-color: #9aa0a6;
+      cursor: not-allowed;
     }
-    .response {
-      margin-bottom: 15px;
-      border-left: 4px solid #4285f4;
-      padding-left: 10px;
+
+    .status-bar {
+      font-size: 13px;
+      color: #5f6368;
+      margin-top: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
-    .loader {
-      border: 3px solid #f3f3f3;
+
+    .spinner {
+      border: 2px solid rgba(0, 0, 0, 0.1);
+      border-top: 2px solid var(--primary-color);
       border-radius: 50%;
-      border-top: 3px solid #3498db;
-      width: 20px;
-      height: 20px;
+      width: 16px;
+      height: 16px;
       animation: spin 1s linear infinite;
       display: none;
-      margin: 0 auto;
     }
+    
     @keyframes spin {
       0% { transform: rotate(0deg); }
       100% { transform: rotate(360deg); }
     }
-    .status {
+
+    .ai-responses {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .ai-card {
+      background-color: var(--card-background);
+      border-radius: var(--border-radius);
+      padding: 16px;
+      box-shadow: var(--box-shadow);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .ai-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 4px;
+      height: 100%;
+    }
+
+    .ai-card.gemini::before {
+      background-color: var(--gemini-color);
+    }
+
+    .ai-card.chatgpt::before {
+      background-color: var(--openai-color);
+    }
+
+    .ai-card.claude::before {
+      background-color: var(--claude-color);
+    }
+
+    .ai-title {
+      font-weight: 600;
+      margin-top: 0;
+      margin-bottom: 12px;
+      font-size: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .ai-logo {
+      width: 20px;
+      height: 20px;
+      object-fit: contain;
+    }
+
+    .ai-response {
+      font-size: 14px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      margin: 0;
+      padding: 0;
+    }
+
+    .ai-response.loading {
+      position: relative;
+      height: 20px;
+    }
+
+    .ai-response.loading::after {
+      content: "...";
+      animation: ellipsis 1.5s infinite;
+      position: absolute;
+    }
+
+    .ai-response.error {
+      color: #d93025;
+      font-style: italic;
+    }
+
+    @keyframes ellipsis {
+      0% { content: "."; }
+      33% { content: ".."; }
+      66% { content: "..."; }
+    }
+
+    .ai-toolbar {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 12px;
+      gap: 8px;
+    }
+
+    .ai-toolbar button {
+      width: auto;
+      padding: 6px 12px;
       font-size: 12px;
-      color: #666;
-      margin-top: 5px;
+      background-color: transparent;
+      color: var(--primary-color);
+      border: 1px solid #dfe1e5;
+    }
+
+    .ai-toolbar button:hover {
+      background-color: rgba(66, 133, 244, 0.1);
+    }
+
+    .error-container {
+      background-color: #fdeded;
+      border: 1px solid #f8d7da;
+      border-radius: 4px;
+      padding: 12px;
+      margin-top: 12px;
+      color: #d93025;
+      font-size: 13px;
     }
   </style>
 </head>
 <body>
   <div class="container">
-    <h2>Mixer AI</h2>
-    <textarea id="question" placeholder="Enter your question here..."></textarea>
-    <button id="askButton">Ask All AIs</button>
-    <div class="loader" id="loader"></div>
-    <div class="status" id="status"></div>
-    
-    <div class="response-container">
-      <h3>Gemini:</h3>
-      <div class="response" id="geminiResponse"></div>
+    <div class="header">
+      <h1>Mixer AI</h1>
+    </div>
+
+    <div class="input-container">
+      <textarea id="question" placeholder="Enter your question here..."></textarea>
+      <button id="askButton">
+        <span>Ask All AIs</span>
+      </button>
+      <div class="status-bar">
+        <div class="spinner" id="spinner"></div>
+        <span id="status">Ready to answer your questions</span>
+      </div>
+      <div class="error-container" id="errorContainer" style="display: none;"></div>
+    </div>
+
+    <div class="ai-responses">
+      <div class="ai-card gemini">
+        <h3 class="ai-title">
+          <span>Gemini</span>
+        </h3>
+        <p class="ai-response" id="geminiResponse"></p>
+        <div class="ai-toolbar">
+          <button class="copy-btn" data-source="gemini">Copy</button>
+        </div>
+      </div>
       
-      <h3>ChatGPT:</h3>
-      <div class="response" id="chatgptResponse"></div>
+      <div class="ai-card chatgpt">
+        <h3 class="ai-title">
+          <span>ChatGPT</span>
+        </h3>
+        <p class="ai-response" id="chatgptResponse"></p>
+        <div class="ai-toolbar">
+          <button class="copy-btn" data-source="chatgpt">Copy</button>
+        </div>
+      </div>
       
-      <h3>Claude:</h3>
-      <div class="response" id="claudeResponse"></div>
+      <div class="ai-card claude">
+        <h3 class="ai-title">
+          <span>Claude</span>
+        </h3>
+        <p class="ai-response" id="claudeResponse"></p>
+        <div class="ai-toolbar">
+          <button class="copy-btn" data-source="claude">Copy</button>
+        </div>
+      </div>
     </div>
   </div>
   <script src="popup.js"></script>
