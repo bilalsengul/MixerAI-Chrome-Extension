@@ -46,9 +46,9 @@ async function findAITabs() {
   console.log('All tabs:', tabs.map(t => ({ id: t.id, url: t.url })));
   
   const aiTabs = {
-    gemini: findTabWithPattern(tabs, ['gemini.google.com']),
+    gemini: findTabWithPattern(tabs, ['gemini.google.com', 'bard.google.com']),
     chatgpt: findTabWithPattern(tabs, ['chat.openai.com']),
-    claude: findTabWithPattern(tabs, ['claude.ai'])
+    claude: findTabWithPattern(tabs, ['claude.ai', 'anthropic.com'])
   };
   
   console.log('AI tabs found:', aiTabs);
@@ -67,6 +67,15 @@ function findTabWithPattern(tabs, patterns) {
 async function askAI(ai, tabId, question) {
   try {
     console.log(`Executing script in ${ai} tab ${tabId}`);
+    
+    // First, check if the tab is still valid
+    try {
+      await chrome.tabs.get(tabId);
+    } catch (error) {
+      throw new Error(`Tab ${tabId} no longer exists. Please open the ${ai} website.`);
+    }
+    
+    // Then attempt to execute script
     await chrome.scripting.executeScript({
       target: { tabId: tabId },
       func: injectQuestion,
@@ -94,13 +103,15 @@ async function injectQuestion(ai, question) {
         'textarea[placeholder="Enter a prompt here"]',
         'textarea.message-input',
         '.ProseMirror',
-        'div[contenteditable="true"]'
+        'div[contenteditable="true"]',
+        'textarea[placeholder="Message Gemini…"]'
       ],
       button: [
         'button[aria-label="Send message"]',
         'button.send-button',
         'button:has(svg)',
-        'button[data-testid="send-button"]'
+        'button[data-testid="send-button"]',
+        'button[aria-label="Send"]'
       ],
       response: [
         '.gemini-response-container',
@@ -109,7 +120,8 @@ async function injectQuestion(ai, question) {
         '.response-message',
         '.message-content',
         '.message-body',
-        'div[data-testid="llm-response"]'
+        'div[data-testid="llm-response"]',
+        '.conversation-container > div:last-child'
       ]
     },
     chatgpt: {
@@ -117,13 +129,15 @@ async function injectQuestion(ai, question) {
         '#prompt-textarea',
         'textarea[data-id="root"]',
         'textarea[placeholder="Message ChatGPT…"]',
-        'textarea'
+        'textarea',
+        'textarea[placeholder="Message"]'
       ],
       button: [
         'button[data-testid="send-button"]',
         'button.send-button',
         'button:has(svg)',
-        'button[aria-label="Send message"]'
+        'button[aria-label="Send message"]',
+        'form button'
       ],
       response: [
         '.markdown',
@@ -132,7 +146,8 @@ async function injectQuestion(ai, question) {
         '.response-content',
         '.text-message-content',
         'div[data-testid="conversation-turn-"]',
-        'div[data-message-author-role="assistant"]'
+        'div[data-message-author-role="assistant"]',
+        '.chat-message.assistant'
       ]
     },
     claude: {
@@ -141,14 +156,16 @@ async function injectQuestion(ai, question) {
         '.ProseMirror',
         'div[role="textbox"]',
         'textarea[placeholder="Message Claude…"]',
-        '[data-slate-editor="true"]'
+        '[data-slate-editor="true"]',
+        'div[placeholder="Enter your message..."]'
       ],
       button: [
         'button[aria-label="Send message"]',
         'button.send-button',
         'button:has(svg)',
         'button[type="submit"]',
-        'button.sendButton'
+        'button.sendButton',
+        'form button[type="submit"]'
       ],
       response: [
         '.claude-response',
@@ -157,12 +174,18 @@ async function injectQuestion(ai, question) {
         '[data-message-author-role="assistant"]',
         '.message-container:last-child',
         '.prose',
-        '.chat-message-container .chat-message'
+        '.chat-message-container .chat-message',
+        '.chat-messages .message.assistant',
+        '.chatHistory .content:last-child'
       ]
     }
   };
   
   try {
+    // Log info about the page to help with debugging
+    console.log('Current URL:', window.location.href);
+    console.log('Page title:', document.title);
+    
     // Log all available elements for debugging
     console.log('Available textareas:', Array.from(document.querySelectorAll('textarea')).map(el => {
       return { id: el.id, class: el.className, placeholder: el.placeholder };
@@ -193,12 +216,82 @@ async function injectQuestion(ai, question) {
       }
     }
     
+    // If not found, try a more aggressive approach by searching for any possible input
+    if (!inputElement) {
+      const possibleInputs = [
+        ...Array.from(document.querySelectorAll('textarea')),
+        ...Array.from(document.querySelectorAll('div[contenteditable="true"]')),
+        ...Array.from(document.querySelectorAll('[role="textbox"]'))
+      ];
+      
+      if (possibleInputs.length > 0) {
+        // Take the first visible input element
+        inputElement = possibleInputs.find(el => {
+          const style = window.getComputedStyle(el);
+          return style.display !== 'none' && style.visibility !== 'hidden';
+        });
+        
+        if (inputElement) {
+          console.log('Found input element using fallback method:', inputElement);
+        }
+      }
+    }
+    
+    // If not found, try a more aggressive approach for the send button
+    if (!sendButton && inputElement) {
+      // Find the closest form and its submit button
+      const form = inputElement.closest('form');
+      if (form) {
+        sendButton = form.querySelector('button[type="submit"]') || 
+                     form.querySelector('button:last-child');
+        
+        if (sendButton) {
+          console.log('Found send button using form fallback method:', sendButton);
+        }
+      }
+      
+      // If still not found, look for buttons near the input
+      if (!sendButton) {
+        const parent = inputElement.parentElement;
+        if (parent) {
+          // Find nearby buttons
+          const nearbyButtons = [];
+          let currentNode = parent;
+          for (let i = 0; i < 3; i++) { // Check up to 3 levels up
+            const buttons = currentNode.querySelectorAll('button');
+            nearbyButtons.push(...buttons);
+            if (currentNode.parentElement) {
+              currentNode = currentNode.parentElement;
+            } else {
+              break;
+            }
+          }
+          
+          // Filter to find likely send buttons
+          if (nearbyButtons.length > 0) {
+            sendButton = nearbyButtons.find(btn => {
+              const text = btn.textContent.toLowerCase();
+              const ariaLabel = (btn.getAttribute('aria-label') || '').toLowerCase();
+              return text.includes('send') || ariaLabel.includes('send') || 
+                     btn.innerHTML.includes('svg') || // Likely an icon button
+                     text === '' || // Empty buttons are often icon buttons
+                     btn.closest('form') !== null; // Buttons in the same form
+            });
+            
+            if (sendButton) {
+              console.log('Found send button using proximity fallback:', sendButton);
+            }
+          }
+        }
+      }
+    }
+    
     if (!inputElement || !sendButton) {
       console.error(`Could not find input field or send button for ${ai}`);
       port.postMessage({
         action: 'aiResponse',
         ai: ai,
-        response: 'Error: Could not find input field or send button. Check console for details.'
+        response: `Error: Could not find input field or send button on the ${ai} website. Please make sure you're on the chat interface.`
       });
       return;
     }
@@ -256,7 +349,9 @@ async function injectQuestion(ai, question) {
 function pollForResponse(ai, responseSelectors, port) {
   console.log(`Starting polling for ${ai} responses`);
   let pollAttempts = 0;
-  const maxAttempts = 30; // 30 seconds max
+  const maxAttempts = 40; // 40 seconds max
+  let lastResponse = '';
+  let stableCount = 0;
   
   const pollInterval = setInterval(() => {
     pollAttempts++;
@@ -275,19 +370,58 @@ function pollForResponse(ai, responseSelectors, port) {
       }
     }
     
+    // If still not found, try a more aggressive approach
+    if (!responseElement) {
+      // Look for text that appears after sending the message
+      // This is a fallback when selectors don't work
+      const messageContainers = [
+        ...document.querySelectorAll('.message'),
+        ...document.querySelectorAll('.chat-message'),
+        ...document.querySelectorAll('.conversation-turn'),
+        ...document.querySelectorAll('.response'),
+        ...document.querySelectorAll('[role="region"]')
+      ];
+      
+      if (messageContainers.length > 0) {
+        // Get the last message container
+        responseElement = messageContainers[messageContainers.length - 1];
+        console.log('Found response element using fallback method:', responseElement);
+      }
+    }
+    
     if (responseElement) {
       const responseText = responseElement.textContent || responseElement.innerText;
       if (responseText && responseText.trim().length > 0) {
         console.log(`Found response text for ${ai}: ${responseText.substring(0, 50)}...`);
         
-        port.postMessage({
-          action: 'aiResponse',
-          ai: ai,
-          response: responseText
-        });
-        
-        clearInterval(pollInterval);
-        return;
+        // Check if the response has stabilized (stopped changing)
+        if (responseText === lastResponse) {
+          stableCount++;
+          // If the text hasn't changed for 3 polls (3 seconds), consider it complete
+          if (stableCount >= 3) {
+            port.postMessage({
+              action: 'aiResponse',
+              ai: ai,
+              response: responseText
+            });
+            
+            clearInterval(pollInterval);
+            return;
+          }
+        } else {
+          // Response is still changing, reset stable count
+          stableCount = 0;
+          lastResponse = responseText;
+          
+          // Still provide updates while typing
+          if (pollAttempts % 3 === 0) { // Send partial updates every 3 seconds
+            port.postMessage({
+              action: 'aiResponse',
+              ai: ai,
+              response: responseText
+            });
+          }
+        }
       }
     } else {
       console.log(`No response element found yet for ${ai}`);
@@ -296,11 +430,21 @@ function pollForResponse(ai, responseSelectors, port) {
     if (pollAttempts >= maxAttempts) {
       console.log(`Polling timeout for ${ai}`);
       clearInterval(pollInterval);
-      port.postMessage({
-        action: 'aiResponse',
-        ai: ai,
-        response: `Error: Timeout waiting for response from ${ai}.`
-      });
+      
+      // Send whatever response we've captured so far, or an error if none
+      if (lastResponse) {
+        port.postMessage({
+          action: 'aiResponse',
+          ai: ai,
+          response: lastResponse
+        });
+      } else {
+        port.postMessage({
+          action: 'aiResponse',
+          ai: ai,
+          response: `Error: Timeout waiting for response from ${ai}.`
+        });
+      }
     }
   }, 1000); // Check every second
 } 
