@@ -99,17 +99,56 @@ document.addEventListener('DOMContentLoaded', function() {
       chatgptResponse.classList.add('loading');
       claudeResponse.classList.add('loading');
       
+      // Find AI tabs
       const tabs = await chrome.runtime.sendMessage({ action: 'findAITabs' });
       
-      // Check which AI services are available
-      let availableAIs = [];
+      // Check which AI services are available and open missing ones
+      const missingAIs = [];
+      const availableAIs = [];
+      const openTabPromises = [];
       
-      if (tabs.gemini) availableAIs.push('Gemini');
-      if (tabs.chatgpt) availableAIs.push('ChatGPT');
-      if (tabs.claude) availableAIs.push('Claude');
+      // For each missing AI, open a new tab
+      if (!tabs.gemini) {
+        missingAIs.push('Gemini');
+        openTabPromises.push(openAITab('gemini'));
+      } else {
+        availableAIs.push('Gemini');
+      }
+      
+      if (!tabs.chatgpt) {
+        missingAIs.push('ChatGPT');
+        openTabPromises.push(openAITab('chatgpt'));
+      } else {
+        availableAIs.push('ChatGPT');
+      }
+      
+      if (!tabs.claude) {
+        missingAIs.push('Claude');
+        openTabPromises.push(openAITab('claude'));
+      } else {
+        availableAIs.push('Claude');
+      }
+      
+      // If there are missing AIs, wait for the tabs to open
+      if (missingAIs.length > 0) {
+        setStatus(`Opening tabs for: ${missingAIs.join(', ')}...`);
+        
+        // Wait for all tabs to open
+        const openResults = await Promise.all(openTabPromises);
+        
+        // Update our available tabs
+        const updatedTabs = await chrome.runtime.sendMessage({ action: 'findAITabs' });
+        Object.assign(tabs, updatedTabs);
+        
+        // Update available AIs
+        availableAIs.length = 0;
+        if (tabs.gemini) availableAIs.push('Gemini');
+        if (tabs.chatgpt) availableAIs.push('ChatGPT');
+        if (tabs.claude) availableAIs.push('Claude');
+      }
       
       if (availableAIs.length === 0) {
-        setError('No AI tabs found. Please open Gemini, ChatGPT, and Claude in separate tabs.');
+        setError('Could not open any AI tabs. Please check if you have the required permissions.');
         showLoading(false);
         geminiResponse.classList.remove('loading');
         chatgptResponse.classList.remove('loading');
@@ -117,8 +156,7 @@ document.addEventListener('DOMContentLoaded', function() {
         return;
       }
       
-      setStatus(`Found tabs for: ${availableAIs.join(', ')}. Sending questions...`);
-      
+      setStatus(`Sending questions to: ${availableAIs.join(', ')}...`);
       await sendQuestions(tabs, question);
       
     } catch (error) {
@@ -126,6 +164,11 @@ document.addEventListener('DOMContentLoaded', function() {
       showLoading(false);
     }
   });
+
+  // Function to open a tab for an AI service
+  async function openAITab(ai) {
+    return chrome.runtime.sendMessage({ action: 'openAITab', ai: ai });
+  }
 
   function clearResponses() {
     geminiResponse.textContent = '';
@@ -173,7 +216,7 @@ document.addEventListener('DOMContentLoaded', function() {
         geminiResponse.classList.add('error');
       }
     } else {
-      geminiResponse.textContent = 'Error: No Gemini tab found. Please open https://gemini.google.com/ in a tab.';
+      geminiResponse.textContent = 'Error: Could not connect to Gemini.';
       geminiResponse.classList.remove('loading');
       geminiResponse.classList.add('error');
     }
@@ -193,7 +236,7 @@ document.addEventListener('DOMContentLoaded', function() {
         chatgptResponse.classList.add('error');
       }
     } else {
-      chatgptResponse.textContent = 'Error: No ChatGPT tab found. Please open https://chat.openai.com/ in a tab.';
+      chatgptResponse.textContent = 'Error: Could not connect to ChatGPT.';
       chatgptResponse.classList.remove('loading');
       chatgptResponse.classList.add('error');
     }
@@ -213,7 +256,7 @@ document.addEventListener('DOMContentLoaded', function() {
         claudeResponse.classList.add('error');
       }
     } else {
-      claudeResponse.textContent = 'Error: No Claude tab found. Please open https://claude.ai/ in a tab.';
+      claudeResponse.textContent = 'Error: Could not connect to Claude.';
       claudeResponse.classList.remove('loading');
       claudeResponse.classList.add('error');
     }

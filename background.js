@@ -23,6 +23,14 @@ chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
       });
     return true; // Indicates async response
   }
+  
+  if (message.action === 'openAITab') {
+    openAITab(message.ai).then(sendResponse).catch(error => {
+      console.error(`Error opening ${message.ai} tab:`, error);
+      sendResponse({ error: error.message });
+    });
+    return true; // Indicates async response
+  }
 });
 
 chrome.runtime.onConnect.addListener(function(port) {
@@ -40,6 +48,47 @@ chrome.runtime.onConnect.addListener(function(port) {
     });
   }
 });
+
+// AI service URLs
+const AI_URLS = {
+  gemini: 'https://gemini.google.com/',
+  chatgpt: 'https://chat.openai.com/',
+  claude: 'https://claude.ai/'
+};
+
+// Function to open a new tab for an AI service
+async function openAITab(ai) {
+  if (!AI_URLS[ai]) {
+    throw new Error(`Unknown AI service: ${ai}`);
+  }
+  
+  console.log(`Opening new tab for ${ai} at ${AI_URLS[ai]}`);
+  const tab = await chrome.tabs.create({ url: AI_URLS[ai], active: false });
+  
+  // Wait for the tab to load
+  return new Promise((resolve, reject) => {
+    const tabId = tab.id;
+    
+    function listener(updatedTabId, changeInfo) {
+      if (updatedTabId === tabId && changeInfo.status === 'complete') {
+        chrome.tabs.onUpdated.removeListener(listener);
+        
+        // Give the page a moment to fully initialize
+        setTimeout(() => {
+          resolve({ tabId: tabId, success: true });
+        }, 2000);
+      }
+    }
+    
+    chrome.tabs.onUpdated.addListener(listener);
+    
+    // Set a timeout in case the tab never fully loads
+    setTimeout(() => {
+      chrome.tabs.onUpdated.removeListener(listener);
+      resolve({ tabId: tabId, success: false, warning: 'Tab might not be fully loaded' });
+    }, 20000);
+  });
+}
 
 async function findAITabs() {
   const tabs = await chrome.tabs.query({});
@@ -129,14 +178,16 @@ async function injectQuestion(ai, question) {
         '#prompt-textarea',
         'textarea[data-id="root"]',
         'textarea[placeholder="Message ChatGPT…"]',
-        'textarea',
-        'textarea[placeholder="Message"]'
+        'textarea[placeholder="Ask anything"]',
+        'textarea[placeholder="Message"]',
+        'textarea'
       ],
       button: [
         'button[data-testid="send-button"]',
         'button.send-button',
         'button:has(svg)',
         'button[aria-label="Send message"]',
+        'form button[type="submit"]',
         'form button'
       ],
       response: [
@@ -147,7 +198,8 @@ async function injectQuestion(ai, question) {
         '.text-message-content',
         'div[data-testid="conversation-turn-"]',
         'div[data-message-author-role="assistant"]',
-        '.chat-message.assistant'
+        '.chat-message.assistant',
+        '.chat-turn.assistant .content'
       ]
     },
     claude: {
@@ -180,6 +232,40 @@ async function injectQuestion(ai, question) {
       ]
     }
   };
+  
+  // Special handling for initial page of ChatGPT
+  if (ai === 'chatgpt' && window.location.href.includes('chat.openai.com') && document.querySelector('input[placeholder="Ask anything"]')) {
+    // We're on the landing page or empty conversation page
+    // Click on the new chat button if available
+    const newChatButton = document.querySelector('a[href="/"]');
+    if (newChatButton) {
+      console.log('Clicking new chat button on ChatGPT');
+      newChatButton.click();
+      
+      // Wait for the chat interface to load
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+    
+    // Find the input field which might be different on this page
+    const input = document.querySelector('input[placeholder="Ask anything"]') || 
+                  document.querySelector('textarea[placeholder="Message"]');
+    
+    if (input) {
+      // Set the text
+      input.value = question;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      
+      // Find and click the send button
+      const send = document.querySelector('button[type="submit"]') || 
+                  document.querySelector('form button');
+                  
+      if (send) {
+        send.click();
+        pollForResponse(ai, selectors[ai].response, port);
+        return;
+      }
+    }
+  }
   
   try {
     // Log info about the page to help with debugging
