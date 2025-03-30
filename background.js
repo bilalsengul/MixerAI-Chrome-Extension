@@ -33,6 +33,11 @@ chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
   }
 });
 
+// This runs when the extension is installed or updated
+chrome.runtime.onInstalled.addListener(() => {
+  console.log('Mixer AI Extension installed or updated');
+});
+
 chrome.runtime.onConnect.addListener(function(port) {
   if (port.name === 'aiResponse') {
     console.log('Connection established for aiResponse');
@@ -63,39 +68,53 @@ async function openAITab(ai) {
   }
   
   console.log(`Opening new tab for ${ai} at ${AI_URLS[ai]}`);
-  const tab = await chrome.tabs.create({ url: AI_URLS[ai], active: false });
   
-  // Wait for the tab to load
-  return new Promise((resolve, reject) => {
-    const tabId = tab.id;
-    let timeoutHandle = null;
+  try {
+    const tab = await chrome.tabs.create({ url: AI_URLS[ai], active: false });
     
-    function listener(updatedTabId, changeInfo) {
-      if (updatedTabId === tabId) {
-        if (changeInfo.status === 'complete') {
-          clearTimeout(timeoutHandle);
-          chrome.tabs.onUpdated.removeListener(listener);
-          console.log(`Tab ${tabId} for ${ai} finished loading.`);
-          
-          // Give the page a moment to fully initialize
-          setTimeout(() => {
-            resolve({ tabId: tabId, success: true });
-          }, 2500); // Increased initialization time
-        } else if (changeInfo.status === 'loading') {
-          console.log(`Tab ${tabId} for ${ai} is loading...`);
-        }
-      }
+    if (!tab || !tab.id) {
+      throw new Error(`Failed to create tab for ${ai}`);
     }
     
-    chrome.tabs.onUpdated.addListener(listener);
+    const tabId = tab.id;
+    console.log(`Created tab with ID ${tabId}`);
     
-    // Set a timeout in case the tab never fully loads
-    timeoutHandle = setTimeout(() => {
-      chrome.tabs.onUpdated.removeListener(listener);
-      console.warn(`Timeout waiting for ${ai} tab ${tabId} to load.`);
-      resolve({ tabId: tabId, success: false, warning: 'Tab might not be fully loaded' });
-    }, 25000); // 25 second timeout
-  });
+    // Wait for the tab to load
+    return new Promise((resolve, reject) => {
+      let timeoutHandle = null;
+      
+      function listener(updatedTabId, changeInfo) {
+        if (updatedTabId === tabId) {
+          if (changeInfo.status === 'complete') {
+            if (timeoutHandle) {
+              clearTimeout(timeoutHandle);
+            }
+            chrome.tabs.onUpdated.removeListener(listener);
+            console.log(`Tab ${tabId} for ${ai} finished loading.`);
+            
+            // Give the page a moment to fully initialize
+            setTimeout(() => {
+              resolve({ tabId: tabId, success: true });
+            }, 3000); // Increased initialization time to 3 seconds
+          } else if (changeInfo.status === 'loading') {
+            console.log(`Tab ${tabId} for ${ai} is loading...`);
+          }
+        }
+      }
+      
+      chrome.tabs.onUpdated.addListener(listener);
+      
+      // Set a timeout in case the tab never fully loads
+      timeoutHandle = setTimeout(() => {
+        chrome.tabs.onUpdated.removeListener(listener);
+        console.warn(`Timeout waiting for ${ai} tab ${tabId} to load.`);
+        resolve({ tabId: tabId, success: false, warning: 'Tab might not be fully loaded' });
+      }, 25000); // 25 second timeout
+    });
+  } catch (error) {
+    console.error(`Error creating tab for ${ai}:`, error);
+    throw new Error(`Failed to create tab for ${ai}: ${error.message}`);
+  }
 }
 
 async function findAITabs() {
@@ -127,9 +146,40 @@ async function askAI(ai, tabId, question) {
     
     // First, check if the tab is still valid
     try {
-      await chrome.tabs.get(tabId);
+      const tab = await chrome.tabs.get(tabId);
+      if (!tab) {
+        throw new Error(`Tab ${tabId} no longer exists. Please open the ${ai} website.`);
+      }
     } catch (error) {
       throw new Error(`Tab ${tabId} no longer exists. Please open the ${ai} website.`);
+    }
+    
+    // For Claude specifically, check if we're on the right page
+    if (ai === 'claude') {
+      try {
+        // Navigate to the main claude.ai page first if needed
+        await chrome.tabs.update(tabId, { url: 'https://claude.ai/' });
+        
+        // Wait for the page to load before injecting
+        await new Promise(resolve => {
+          function listener(updatedTabId, changeInfo) {
+            if (updatedTabId === tabId && changeInfo.status === 'complete') {
+              chrome.tabs.onUpdated.removeListener(listener);
+              setTimeout(resolve, 1000); // Wait a bit after complete
+            }
+          }
+          chrome.tabs.onUpdated.addListener(listener);
+          
+          // Set a timeout in case the listener never fires
+          setTimeout(() => {
+            chrome.tabs.onUpdated.removeListener(listener);
+            resolve();
+          }, 10000);
+        });
+      } catch (claudeError) {
+        console.warn('Error navigating Claude tab:', claudeError);
+        // Continue anyway, the script injection might still work
+      }
     }
     
     // Then attempt to execute script
@@ -224,7 +274,9 @@ async function injectQuestion(ai, question) {
         'div[role="textbox"]',
         'textarea[placeholder="Message Claude…"]',
         '[data-slate-editor="true"]',
-        'div[placeholder="Enter your message..."]'
+        'div[placeholder="Enter your message..."]',
+        'textarea', // Fallback for any textarea
+        'input[type="text"]' // Some versions might use regular input
       ],
       button: [
         'button[aria-label="Send message"]',
@@ -232,7 +284,8 @@ async function injectQuestion(ai, question) {
         'button:has(svg)',
         'button[type="submit"]',
         'button.sendButton',
-        'form button[type="submit"]'
+        'form button[type="submit"]',
+        'button:not([disabled])' // Try any enabled button as last resort
       ],
       response: [
         '.claude-response',
@@ -243,10 +296,28 @@ async function injectQuestion(ai, question) {
         '.prose',
         '.chat-message-container .chat-message',
         '.chat-messages .message.assistant',
-        '.chatHistory .content:last-child'
+        '.chatHistory .content:last-child',
+        '.message.assistant',
+        '.response'
       ]
     }
   };
+  
+  // Special handling for Claude - try to detect if we need to start a new chat
+  if (ai === 'claude') {
+    // Look for "New Chat" button or similar
+    const newChatBtn = document.querySelector('a[href="/new"]') || 
+                       document.querySelector('button:contains("New Chat")') || 
+                       document.querySelector('button:contains("Start a new")');
+    
+    if (newChatBtn) {
+      console.log('Starting a new Claude chat');
+      newChatBtn.click();
+      
+      // Wait for the new chat page to load
+      await new Promise(resolve => setTimeout(resolve, 1500));
+    }
+  }
   
   // Special handling for initial page of ChatGPT
   if (ai === 'chatgpt' && window.location.href.includes('chat.openai.com') && document.querySelector('input[placeholder="Ask anything"]')) {
@@ -404,6 +475,12 @@ async function injectQuestion(ai, question) {
       nativeInputValueSetter.call(inputElement, question);
       inputElement.dispatchEvent(new Event('input', { bubbles: true }));
       console.log(`Set question in textarea for ${ai}`);
+    } else if (inputElement.tagName === 'INPUT') {
+      // For regular input elements
+      const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+      nativeInputValueSetter.call(inputElement, question);
+      inputElement.dispatchEvent(new Event('input', { bubbles: true }));
+      console.log(`Set question in input field for ${ai}`);
     } else if (inputElement.getAttribute('contenteditable') === 'true' || inputElement.classList.contains('ProseMirror')) {
       inputElement.textContent = question;
       inputElement.dispatchEvent(new Event('input', { bubbles: true }));

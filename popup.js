@@ -22,88 +22,115 @@ document.addEventListener('DOMContentLoaded', function() {
     setTheme(newTheme);
     
     // Save theme preference
-    chrome.storage.local.set({ theme: newTheme });
+    if (chrome && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.set({ theme: newTheme });
+    } else {
+      console.error('Chrome storage API not available.');
+    }
   });
   
   function initTheme() {
     // Check for saved theme preference or use system preference
-    chrome.storage.local.get('theme', (data) => {
-      if (data.theme) {
-        setTheme(data.theme);
-      } else {
-        // Use system preference as default if available
-        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-          setTheme('dark');
+    if (chrome && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.get('theme', (data) => {
+        if (data.theme) {
+          setTheme(data.theme);
+        } else {
+          // Use system preference as default if available
+          if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+            setTheme('dark');
+          }
         }
-      }
-      
-      // Listen for system theme changes
-      window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
-        chrome.storage.local.get('theme', (data) => {
-          if (!data.theme) {
-            // Only change automatically if user hasn't set a preference
+        
+        // Listen for system theme changes
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+          // Ensure storage API is available before checking
+          if (chrome && chrome.storage && chrome.storage.local) {
+            chrome.storage.local.get('theme', (data) => {
+              if (!data.theme) {
+                // Only change automatically if user hasn't set a preference
+                setTheme(e.matches ? 'dark' : 'light');
+              }
+            });
+          } else {
+            console.error('Chrome storage API not available for theme change listener.');
+            // Fallback to just setting based on system preference
             setTheme(e.matches ? 'dark' : 'light');
           }
         });
       });
-    });
+    } else {
+      console.error('Chrome storage API not available for theme initialization.');
+      // Fallback: Use system preference if possible
+      if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        setTheme('dark');
+      }
+    }
   }
   
   // Load previous session's data
   function loadSavedData() {
-    chrome.storage.local.get(['lastQuestion', 'responses'], (data) => {
-      if (data.lastQuestion) {
-        questionInput.value = data.lastQuestion;
-      }
-      
-      if (data.responses) {
-        if (data.responses.gemini) {
-          geminiResponse.textContent = data.responses.gemini.text;
-          if (data.responses.gemini.isError) {
-            geminiResponse.classList.add('error');
-          }
+    if (chrome && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.get(['lastQuestion', 'responses'], (data) => {
+        if (data.lastQuestion) {
+          questionInput.value = data.lastQuestion;
         }
         
-        if (data.responses.chatgpt) {
-          chatgptResponse.textContent = data.responses.chatgpt.text;
-          if (data.responses.chatgpt.isError) {
-            chatgptResponse.classList.add('error');
+        if (data.responses) {
+          if (data.responses.gemini) {
+            geminiResponse.textContent = data.responses.gemini.text;
+            if (data.responses.gemini.isError) {
+              geminiResponse.classList.add('error');
+            }
+          }
+          
+          if (data.responses.chatgpt) {
+            chatgptResponse.textContent = data.responses.chatgpt.text;
+            if (data.responses.chatgpt.isError) {
+              chatgptResponse.classList.add('error');
+            }
+          }
+          
+          if (data.responses.claude) {
+            claudeResponse.textContent = data.responses.claude.text;
+            if (data.responses.claude.isError) {
+              claudeResponse.classList.add('error');
+            }
+          }
+          
+          // Update status if we have responses
+          if (data.responses.gemini || data.responses.chatgpt || data.responses.claude) {
+            status.textContent = 'Previous responses loaded';
           }
         }
-        
-        if (data.responses.claude) {
-          claudeResponse.textContent = data.responses.claude.text;
-          if (data.responses.claude.isError) {
-            claudeResponse.classList.add('error');
-          }
-        }
-        
-        // Update status if we have responses
-        if (data.responses.gemini || data.responses.chatgpt || data.responses.claude) {
-          status.textContent = 'Previous responses loaded';
-        }
-      }
-    });
+      });
+    } else {
+      console.error('Chrome storage API not available for loading data.');
+    }
   }
   
   // Save responses to Chrome storage
   function saveResponses() {
-    const responses = {
-      gemini: {
-        text: geminiResponse.textContent,
-        isError: geminiResponse.classList.contains('error')
-      },
-      chatgpt: {
-        text: chatgptResponse.textContent,
-        isError: chatgptResponse.classList.contains('error')
-      },
-      claude: {
-        text: claudeResponse.textContent,
-        isError: claudeResponse.classList.contains('error')
-      }
-    };
-    
-    chrome.storage.local.set({ responses: responses });
+    if (chrome && chrome.storage && chrome.storage.local) {
+      const responses = {
+        gemini: {
+          text: geminiResponse.textContent,
+          isError: geminiResponse.classList.contains('error')
+        },
+        chatgpt: {
+          text: chatgptResponse.textContent,
+          isError: chatgptResponse.classList.contains('error')
+        },
+        claude: {
+          text: claudeResponse.textContent,
+          isError: claudeResponse.classList.contains('error')
+        }
+      };
+      
+      chrome.storage.local.set({ responses: responses });
+    } else {
+      console.error('Chrome storage API not available for saving responses.');
+    }
   }
   
   function setTheme(theme) {
@@ -149,7 +176,11 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // Save the question to storage
-    chrome.storage.local.set({ lastQuestion: question });
+    if (chrome && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.set({ lastQuestion: question });
+    } else {
+      console.error('Chrome storage API not available for saving question.');
+    }
     
     clearResponses();
     clearError();
@@ -244,7 +275,11 @@ document.addEventListener('DOMContentLoaded', function() {
     claudeResponse.classList.remove('error', 'loading');
     
     // Clear saved responses
-    chrome.storage.local.remove('responses');
+    if (chrome && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.remove('responses');
+    } else {
+      console.error('Chrome storage API not available for clearing responses.');
+    }
   }
 
   function setError(message) {
